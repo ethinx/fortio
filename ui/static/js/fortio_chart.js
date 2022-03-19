@@ -108,6 +108,7 @@ function makeTitle (res) {
     }
   }
   percStr += ', max ' + myRound(1000.0 * res.DurationHistogram.Max, 3) + ' ms'
+  percStr += ', stdev ' + myRound(1000.0 * res.DurationHistogram.StdDev, 3) + ' ms'
   let statusOk = res.RetCodes[200]
   if (!statusOk) { // grpc or tcp results
     statusOk = res.RetCodes.SERVING || res.RetCodes.OK
@@ -509,6 +510,7 @@ function fortioAddToMultiResult (i, res) {
   findData(6, i, res, '99.9')
   mchart.data.datasets[7].data[i] = 1000.0 * res.DurationHistogram.Max
   mchart.data.datasets[8].data[i] = res.ActualQPS
+  mchart.data.datasets[9].data[i] = res.DurationHistogram.StdDev
 }
 
 function endMultiChart (len) {
@@ -623,6 +625,13 @@ function makeMultiChart () {
           stepped: true,
           borderColor: 'rgba(0, 0, 0, .8)',
           backgroundColor: 'rgba(0, 0, 0, .8)'
+        },
+        {
+          label: 'StdDev',
+          fill: false,
+          stepped: true,
+          borderColor: 'hsla(311, 50%, 80%, .8)',
+          backgroundColor: 'hsla(311, 50%, 80%, .8)'
         }
       ]
     },
