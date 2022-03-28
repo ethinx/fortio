@@ -15,10 +15,13 @@
 package fhttp // import "fortio.org/fortio/fhttp"
 
 import (
+	"crypto/tls"
+	"crypto/x509"
 	"encoding/base64"
 	"flag"
 	"html/template"
 	"io"
+	"io/ioutil"
 	"math/rand"
 	"net/http"
 	"strconv"
@@ -32,6 +35,49 @@ import (
 	"fortio.org/fortio/log"
 	"fortio.org/fortio/stats"
 )
+
+// TLSOptions are common TLS related options between https and grpc.
+type TLSOptions struct {
+	Insecure         bool   // Do not verify certs
+	CACert           string // `Path` to a custom CA certificate file to be used
+	Cert             string // `Path` to the certificate file to be used
+	Key              string // `Path` to the key file used
+	UnixDomainSocket string // `Path`` of unix domain socket to use instead of host:port
+}
+
+// TLSClientConfig creates a tls.Config based on input TLSOptions.
+// For https, ServerName is set later (once host is determined after URL parsing
+// and depending on hostOverride).
+func (to *TLSOptions) TLSClientConfig() (*tls.Config, error) {
+	var res *tls.Config
+
+	res = &tls.Config{MinVersion: tls.VersionTLS12}
+	if to.Insecure {
+		log.LogVf("Using insecure https")
+		res.InsecureSkipVerify = true
+	}
+	if len(to.Cert) > 0 && len(to.Key) > 0 {
+		cert, err := tls.LoadX509KeyPair(to.Cert, to.Key)
+		if err != nil {
+			log.Errf("LoadX509KeyPair error for cert %v / key %v: %v", to.Cert, to.Key, err)
+			return nil, err
+		}
+		res.Certificates = []tls.Certificate{cert}
+	}
+	if len(to.CACert) > 0 {
+		// Load CA cert
+		caCert, err := ioutil.ReadFile(to.CACert)
+		if err != nil {
+			log.Errf("Unable to read CA from %v: %v", to.CACert, err)
+			return nil, err
+		}
+		log.LogVf("Using custom CA from %v", to.CACert)
+		caCertPool := x509.NewCertPool()
+		caCertPool.AppendCertsFromPEM(caCert)
+		res.RootCAs = caCertPool
+	}
+	return res, nil
+}
 
 // Used for the fast case insensitive search.
 const toUpperMask = ^byte('a' - 'A')
@@ -396,6 +442,28 @@ func generateDelay(delay string) time.Duration {
 	}
 	log.Debugf("[0.-100.[ for %s roll %f no hit, defaulting to 0", delay, res)
 	return 0
+}
+
+// generateClose from string, format: close=true for 100% close
+// close=true:10 or close=10 for 10% socket close.
+func generateClose(closeStr string) bool {
+	if closeStr == "" || closeStr == "false" {
+		return false
+	}
+	if closeStr == "true" { // avoid throwing error for pre 1.22 syntax
+		return true
+	}
+	p, err := strconv.ParseFloat(closeStr, 32)
+	if err != nil {
+		log.Debugf("error %v parsing close=%q treating as true", err, closeStr)
+		return true
+	}
+	res := 100. * rand.Float32() // nolint: gosec // we want fast not crypto
+	log.Debugf("close=%f rolled %f", p, res)
+	if res <= float32(p) {
+		return true
+	}
+	return false
 }
 
 // RoundDuration rounds to 10th of second.

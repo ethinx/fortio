@@ -62,9 +62,9 @@ var (
 	halfCloseFlag   = flag.Bool("halfclose", false,
 		"When not keepalive, whether to half close the connection (only for fast http)")
 	httpReqTimeoutFlag  = flag.Duration("timeout", fhttp.HTTPReqTimeOutDefaultValue, "Connection and read timeout value (for http)")
-	stdClientFlag       = flag.Bool("stdclient", false, "Use the slower net/http standard client (works for TLS)")
+	stdClientFlag       = flag.Bool("stdclient", false, "Use the slower net/http standard client (slower but supports h2)")
 	http10Flag          = flag.Bool("http1.0", false, "Use http1.0 (instead of http 1.1)")
-	httpsInsecureFlag   = flag.Bool("k", false, "Do not verify certs in https connections")
+	httpsInsecureFlag   = flag.Bool("k", false, "Do not verify certs in https/tls/grpc connections")
 	httpsInsecureFlagL  = flag.Bool("https-insecure", false, "Long form of the -k flag")
 	resolve             = flag.String("resolve", "", "Resolve host name to this `IP`")
 	headersFlags        headersFlagList
@@ -104,6 +104,8 @@ var (
 	HelpFlag   = flag.Bool("h", false, "Print usage/help on stdout")
 	warmupFlag = flag.Bool("sequential-warmup", false,
 		"http(s) runner warmup done in parallel instead of sequentially. When set, restores pre 1.21 behavior")
+	curlHeadersStdout = flag.Bool("curl-stdout-headers", false,
+		"Restore pre 1.22 behavior where http headers of the fast client are output to stdout in curl mode. now stderr by default.")
 )
 
 // SharedMain is the common part of main from fortio_main and fcurl.
@@ -145,7 +147,12 @@ func FetchURL(o *fhttp.HTTPOptions) {
 	}
 	code, data, header := client.Fetch()
 	log.LogVf("Fetch result code %d, data len %d, headerlen %d", code, len(data), header)
-	os.Stdout.Write(data)
+	if *curlHeadersStdout {
+		os.Stdout.Write(data)
+	} else {
+		os.Stderr.Write(data[:header])
+		os.Stdout.Write(data[header:])
+	}
 	if code != http.StatusOK {
 		log.Errf("Error status %d : %s", code, fhttp.DebugSummary(data, 512))
 		os.Exit(1)
